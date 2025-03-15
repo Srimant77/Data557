@@ -31,6 +31,7 @@ interactive_section <- function(input, output) {
     ranks <- input$ranks
     fields <- input$fields
     degrees <- input$deg
+    req(input$promo)
     promo_filter <- case_when(
       input$promo == "Include Promoted" ~ c(0, 1),
       input$promo == "Exclude Promoted" ~ c(0),
