@@ -6,11 +6,10 @@ library(dplyr)
 library(GGally)
 library(broom)
 
-####################################
-# Data Loading & Preprocessing     #
-####################################
+# Data Loading
 salary_data <- read.table("salary.txt", header = TRUE, sep = "", stringsAsFactors = FALSE)
 
+# Data Processing
 salary_data <- salary_data %>%
   arrange(id, year) %>%
   group_by(id) %>%
@@ -19,53 +18,39 @@ salary_data <- salary_data %>%
   ungroup() %>%
   filter(!is.na(salary_increment), year >= 90, year <= 95)
 
-# Generate statistics
 cleaned_data <- salary_data %>%
   group_by(id) %>%
-  slice_tail(n=1) %>%
+  slice_tail(n = 1) %>%
   ungroup()
 
-cleaned_data_again <- cleaned_data[!is.nan(cleaned_data$avg_increment),]
-salary_data <- cleaned_data_again
-print("###########################################################")
+salary_data <- cleaned_data %>%
+  filter(!is.nan(avg_increment)) %>%
+  mutate(years_experience = year - startyr)
 
-# Converting sex from a character vector to a factor
-# This will allow us to see which is the reference gender in the linear model
-# salary_data$sex <- as.factor(salary_data$sex)
-# levels(salary_data$sex)
+lm_w_gender_only <- lm(avg_increment~sex, data=salary_data)
+summary(lm_w_gender_only)
+print("###############################################################")
 
-lm_w_sex_only <- lm(avg_increment ~ salary_data$sex, data = salary_data)
-summary(lm_w_sex_only)
-
-print("-----------------------------------------------------------")
-
-# Define your predictors
+# Define predictors
 predictors <- c("sex", "yrdeg", "rank", "admin", "deg", "field")
 
-# Data frame to store the results with interactions
+# Initialize results data frame
 results_int <- data.frame(Model = character(), 
                           Predictors = character(), 
                           R2 = numeric(), 
                           Adj_R2 = numeric(), 
                           stringsAsFactors = FALSE)
 
-# Loop over all non-empty combinations of predictors
+# Compute linear models (including all interactions up to 6-way)
 for (k in 1:length(predictors)) {
   combs <- combn(predictors, k, simplify = FALSE)
   for (comb in combs) {
-    # Construct the formula with interactions: (predictors)^2 expands to main effects + all 2-way interactions
     formula_str <- paste("avg_increment ~ (", paste(comb, collapse = " + "), ")^6")
     formula <- as.formula(formula_str)
-    
-    # Fit the linear model with interaction terms
     model <- lm(formula, data = salary_data)
     model_summary <- summary(model)
-    
-    # Extract R-squared and Adjusted R-squared
     r2 <- model_summary$r.squared
     adj_r2 <- model_summary$adj.r.squared
-    
-    # Append the result to our results data frame
     results_int <- rbind(results_int, 
                          data.frame(Model = formula_str, 
                                     Predictors = paste(comb, collapse = ", "), 
@@ -75,25 +60,23 @@ for (k in 1:length(predictors)) {
   }
 }
 
-# Sort results by the highest Adjusted R-squared
 results_int <- results_int[order(-results_int$Adj_R2), ]
 print(results_int)
-
 print("-----------------------------------------------------------------")
 
+# Extract the top 5 models with the highest Adjusted R-squared.
 top5 <- head(results_int, 5)
 top5_vars <- top5[, c("Model", "Predictors", "R2", "Adj_R2")]
-
-# Print the table in the console
 print(top5_vars)
 
+################# Shiny App creation begins below ###########################
 
-
-# Define the UI
 ui <- dashboardPage(
   dashboardHeader(title = "Gender Bias in Salary Increments"),
   dashboardSidebar(
     sidebarMenu(
+      menuItem("Interactive Model", tabName = "interactive", icon = icon("chart-line")),
+      menuItem("Static Visualizations", tabName = "static", icon = icon("chart-bar")),
       checkboxGroupInput(
         inputId = "predictors",
         label   = "Select additional predictors to include:",
@@ -103,26 +86,57 @@ ui <- dashboardPage(
     )
   ),
   dashboardBody(
-    fluidRow(
-      box(title = "Salary Increment vs Sex", width = 6, status = "primary", solidHeader = TRUE,
-          plotOutput("model_plot")),
-      box(title = "Model Summary", width = 6, status = "info", solidHeader = TRUE,
-          verbatimTextOutput("model_summary"),
-          br(),
-          textOutput("r2_text")
+    tabItems(
+      # Interactive Model Tab
+      tabItem(tabName = "interactive",
+              fluidRow(
+                box(title = "Salary Increment vs Sex", width = 6, status = "primary", solidHeader = TRUE,
+                    plotOutput("model_plot")),
+                box(title = "Model Summary", width = 6, status = "info", solidHeader = TRUE,
+                    verbatimTextOutput("model_summary"),
+                    br(),
+                    textOutput("r2_text")
+                )
+              )
+      ),
+      # Static Visualizations Tab
+      tabItem(tabName = "static",
+              fluidRow(
+                box(width = 12, status = "warning", solidHeader = TRUE,
+                    h3("Salary Increment by Degree - Means are roughly the same"),
+                    fluidRow(
+                      column(4, h4("PhD Holders"), plotOutput("static_plot_phd")),
+                      column(4, h4("Prof Degree Holders"), plotOutput("static_plot_prof")),
+                      column(4, h4("Other Degree Holders"), plotOutput("static_plot_other"))
+                    ),
+                    br(),
+                    h3("Years of Experience by Gender"),
+                    fluidRow(
+                      column(12, plotOutput("experience_by_sex_plot"))
+                    ),
+                    h3("Years of Experience vs Salary Increment"),
+                    fluidRow(
+                      column(12, plotOutput("experience_plot"))
+                    ),
+                    br(),
+                    h3("Salary Increment by Field - Means roughly the same"),
+                    fluidRow(
+                      column(4, h4("Field: Other"), plotOutput("field_other_plot")),
+                      column(4, h4("Field: Arts"), plotOutput("field_arts_plot")),
+                      column(4, h4("Field: Prof"), plotOutput("field_prof_plot"))
+                    )
+                )
+              )
       )
     )
   )
-)
+)  # End of dashboardPage
 
-# Define the server logic
 server <- function(input, output, session) {
-  
-  # Reactive: Build model formula based on user selection.
+  # Reactive expression: Build the model formula based on user-selected predictors.
   model_formula <- reactive({
     additional <- input$predictors
     if (length(additional) > 0) {
-      # Build a formula that includes sex plus the additional predictors with all interactions (up to ^6)
       formula_str <- paste("avg_increment ~ (sex +", paste(additional, collapse = " + "), ")^6")
     } else {
       formula_str <- "avg_increment ~ sex"
@@ -130,12 +144,12 @@ server <- function(input, output, session) {
     as.formula(formula_str)
   })
   
-  # Reactive: Fit the model
+  # Reactive expression: Fit the linear model using the dynamic formula.
   model_fit <- reactive({
     lm(model_formula(), data = salary_data)
   })
   
-  # Plot: Display salary_increment vs sex along with model details for sex
+  # Plot for the Interactive Model tab with an annotation showing the model formula.
   output$model_plot <- renderPlot({
     p <- ggplot(salary_data, aes(x = sex, y = salary_increment, fill = sex)) +
       geom_boxplot() +
@@ -143,23 +157,17 @@ server <- function(input, output, session) {
       labs(title = "Salary Increment by Sex", x = "Sex", y = "Salary Increment") +
       theme_minimal()
     
-    # Get model summary to extract coefficients for sex.
-    mod_sum <- summary(model_fit())
-    # For the sex variable, R creates a dummy coefficient (usually "sexM" if levels are "F" and "M").
-    if ("sexM" %in% rownames(mod_sum$coefficients)) {
-      intercept <- round(mod_sum$coefficients["(Intercept)", "Estimate"], 2)
-      slope <- round(mod_sum$coefficients["sexM", "Estimate"], 2)
-      p_val <- mod_sum$coefficients["sexM", "Pr(>|t|)"]
-      p_val <- ifelse(p_val < 0.001, "<0.001", round(p_val, 3))
-      ann_text <- paste("Intercept:", intercept, "\nSlope (sexM):", slope, "\np-value:", p_val)
-      p <- p + annotate("text", x = 1.5, y = max(salary_data$salary_increment, na.rm = TRUE) * 0.9, 
-                        label = ann_text, hjust = 0)
-    }
-    
-    print(p)
+    # Convert the reactive formula to text and add it as an annotation.
+    formula_text <- paste("Model:", deparse(model_formula()))
+    p + annotate("text", 
+                 x = 1.5, 
+                 y = max(salary_data$salary_increment, na.rm = TRUE) * 0.95, 
+                 label = formula_text, 
+                 size = 4, 
+                 color = "black")
   })
   
-  # Show full model summary along with the actual formula
+  # Render the full model summary with the model formula printed above.
   output$model_summary <- renderPrint({
     cat("Model Formula:\n")
     print(model_formula())
@@ -167,14 +175,68 @@ server <- function(input, output, session) {
     print(summary(model_fit()))
   })
   
-  # Display the R^2 value below the plot
+  # Display the R-squared value below the interactive plot.
   output$r2_text <- renderText({
     mod_sum <- summary(model_fit())
     r2_val <- round(mod_sum$r.squared, 3)
     paste("R²:", r2_val)
   })
   
+  # Static Visualizations
+
+  # Years of Experience by Gender plot
+  output$experience_by_sex_plot <- renderPlot({
+    ggplot(salary_data, aes(x = sex, y = years_experience, fill = sex)) +
+      geom_boxplot() +
+      labs(title = "Years of Experience by Gender - Men have over 6 years more than women", 
+           x = "Sex", y = "Years of Experience") +
+      theme_minimal()
+  })
+
+  # Years of Experience vs Salary Increment plot
+  output$experience_plot <- renderPlot({
+    ggplot(salary_data, aes(x = years_experience, y = salary_increment, color = sex)) +
+      geom_point(alpha = 0.7) +
+      geom_smooth(method = "lm", se = FALSE) +
+      labs(title = "Years of Experience vs Salary Increment by Gender - Salary increment and experience is uncorrelated", 
+           x = "Years of Experience", y = "Salary Increment") +
+      theme_minimal()
+  })
+  
+
+  
+  # Function to create a degree-based static plot
+  create_degree_plot <- function(degree) {
+    renderPlot({
+      salary_data %>% filter(deg == degree) %>%
+        ggplot(aes(x = sex, y = salary_increment, fill = sex)) +
+        geom_boxplot() +
+        labs(title = paste("Salary Increment for", degree), 
+             x = "Sex", y = "Salary Increment") +
+        theme_minimal()
+    })
+  }
+  
+  output$static_plot_phd <- create_degree_plot("PhD")
+  output$static_plot_prof <- create_degree_plot("Prof")
+  output$static_plot_other <- create_degree_plot("Other")
+  
+  # Function to create a field-based static plot
+  create_field_plot <- function(field_name) {
+    renderPlot({
+      salary_data %>% filter(field == field_name) %>%
+        ggplot(aes(x = sex, y = salary_increment, fill = sex)) +
+        geom_boxplot() +
+        labs(title = paste("Salary Increment for Field:", field_name), 
+             x = "Sex", y = "Salary Increment") +
+        theme_minimal()
+    })
+  }
+  
+  output$field_other_plot <- create_field_plot("Other")
+  output$field_arts_plot <- create_field_plot("Arts")
+  output$field_prof_plot <- create_field_plot("Prof")
 }
 
-# Run the Shiny app
+# Run the Shiny App
 shinyApp(ui, server)
