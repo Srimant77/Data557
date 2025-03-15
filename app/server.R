@@ -59,6 +59,7 @@ interactive_section <- function(input, output) {
   
   # Fit model
   model_formula <- reactive({
+    req(input$predictors)
     predictors <- input$predictors
     interactions <- input$interactions
     if (interactions > 1 && length(predictors) > 1) {
@@ -227,6 +228,12 @@ server <- function(input, output, session) {
 
       # Change the interaction terms slider value to the nearest valid value
       observeEvent(input$interactions, {
+        if (input$interactions > length(input$predictors)) {
+          updateSliderInput(session, "interactions", value = length(input$predictors))
+        }
+      })
+      
+      observeEvent(input$predictors, {
         if (input$interactions > length(input$predictors)) {
           updateSliderInput(session, "interactions", value = length(input$predictors))
         }
