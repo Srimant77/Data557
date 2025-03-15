@@ -224,40 +224,47 @@ server <- function(input, output, session) {
         "))
        )
       )
+
+      # Change the interaction terms slider value to the nearest valid value
+      observeEvent(input$interactions, {
+        if (input$interactions > length(input$predictors)) {
+          updateSliderInput(session, "interactions", value = length(input$predictors))
+        }
+      })
       
       data <- div(class = "sidebar-rect2",
-                  sidebarMenu(
-                    div(class = "rectangle-header", "Data"),
-                    sliderInput("years", "Minimum years worked:", 2, 6, 2),
-                    checkboxGroupInput(
-                      inputId = "ranks",
-                      label   = "Filter by rank:",
-                      choices = c("Assoc", "Assist", "Full"),
-                      selected = c("Assoc", "Assist", "Full"),
-                    ),
-                    checkboxGroupInput(
-                      inputId = "fields",
-                      label   = "Filter by field:",
-                      choices = c("Arts", "Prof", "Other"),
-                      selected = c("Arts", "Prof", "Other"),
-                    ),
-                    checkboxGroupInput(
-                      inputId = "deg",
-                      label   = "Filter by degree:",
-                      choices = c("PhD", "Prof", "Other"),
-                      selected = c("PhD", "Prof", "Other"),
-                    ),
-                    selectInput("promo",
-                                label = tagList(
-                                  "Filter by promotion status: ",
-                                  HTML("<i class='fa fa-info-circle info-icon'
-                                     data-toggle='tooltip'
-                                     title='Accounts for individuals who received a promotion during years 90-95'>
-                                   </i>"
-                                  )
-                                ),
-                                c("Include Promoted", "Exclude Promoted", "Only Promoted"))
-                  )
+        sidebarMenu(
+          div(class = "rectangle-header", "Data"),
+          sliderInput("years", "Minimum years worked:", 2, 6, 2),
+          checkboxGroupInput(
+            inputId = "ranks",
+            label   = "Filter by rank:",
+            choices = c("Assoc", "Assist", "Full"),
+            selected = c("Assoc", "Assist", "Full"),
+          ),
+          checkboxGroupInput(
+            inputId = "fields",
+            label   = "Filter by field:",
+            choices = c("Arts", "Prof", "Other"),
+            selected = c("Arts", "Prof", "Other"),
+          ),
+          checkboxGroupInput(
+            inputId = "deg",
+            label   = "Filter by degree:",
+            choices = c("PhD", "Prof", "Other"),
+            selected = c("PhD", "Prof", "Other"),
+          ),
+          selectInput("promo",
+          label = tagList(
+            "Filter by promotion status: ",
+            HTML("<i class='fa fa-info-circle info-icon'
+               data-toggle='tooltip'
+               title='Accounts for individuals who received a promotion during years 90-95'>
+             </i>"
+            )
+          ),
+          c("Include Promoted", "Exclude Promoted", "Only Promoted"))
+        )
       )
       
       tagList(model, data)
