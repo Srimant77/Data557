@@ -1,9 +1,4 @@
 library(shiny)
-library(shinydashboard)
-library(tidyverse)
-library(dplyr)
-library(GGally)
-library(broom)
 source("ui.R")
 source("server.R")
 
